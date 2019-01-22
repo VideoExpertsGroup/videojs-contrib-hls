@@ -136,6 +136,26 @@ QUnit.test('obeys none preload option', function(assert) {
   assert.equal(this.player.tech_.hls.stats.bandwidth, 4194304, 'default bandwidth');
 });
 
+QUnit.test('passes options to PlaylistLoader', function(assert) {
+  const options = {
+    url: 'test',
+    tech: this.player.tech_
+  };
+
+  let controller = new MasterPlaylistController(options);
+
+  assert.notOk(controller.masterPlaylistLoader_.withCredentials, 'credentials wont be sent by default');
+  assert.notOk(controller.masterPlaylistLoader_.handleManifestRedirects, 'redirects are ignored by default');
+
+  controller = new MasterPlaylistController(Object.assign({
+    withCredentials: true,
+    handleManifestRedirects: true
+  }, options));
+
+  assert.ok(controller.masterPlaylistLoader_.withCredentials, 'withCredentials enabled');
+  assert.ok(controller.masterPlaylistLoader_.handleManifestRedirects, 'handleManifestRedirects enabled');
+});
+
 QUnit.test('obeys auto preload option', function(assert) {
   this.player.preload('auto');
   // master
@@ -1453,9 +1473,10 @@ function(assert) {
               1000,
               'default request timeout');
 
-  assert.ok(!this.masterPlaylistController
-            .masterPlaylistLoader_
-            .isLowestEnabledRendition_(), 'Not lowest rendition');
+  assert.ok(!Playlist.isLowestEnabledRendition(
+              this.masterPlaylistController.masterPlaylistLoader_.master,
+              this.masterPlaylistController.masterPlaylistLoader_.media()),
+            'not on lowest rendition');
 
   // Cause segment to timeout to force player into lowest rendition
   this.requests[2].timedout = true;
@@ -1466,8 +1487,10 @@ function(assert) {
   // Download new segment after media change
   this.standardXHRResponse(this.requests[3]);
 
-  assert.ok(this.masterPlaylistController
-            .masterPlaylistLoader_.isLowestEnabledRendition_(), 'On lowest rendition');
+  assert.ok(Playlist.isLowestEnabledRendition(
+              this.masterPlaylistController.masterPlaylistLoader_.master,
+              this.masterPlaylistController.masterPlaylistLoader_.media()),
+            'on lowest rendition');
 
   assert.equal(this.masterPlaylistController.requestOptions_.timeout, 0,
               'request timeout 0');
@@ -2294,6 +2317,21 @@ QUnit.test('calculates dynamic BUFFER_LOW_WATER_LINE', function(assert) {
 
   // restore config
   Object.keys(configOld).forEach((key) => Config[key] = configOld[key]);
+});
+
+QUnit.test('Exception in play promise should be caught', function(assert) {
+  const mpc = this.masterPlaylistController;
+
+  mpc.setupSourceBuffers = () => true;
+  mpc.tech_ = {
+    autoplay: () => true,
+    play: () => new Promise(function(resolve, reject) {
+      reject(new DOMException());
+    })
+  };
+  mpc.handleSourceOpen_();
+
+  assert.ok(true, 'rejects dom exception');
 });
 
 QUnit.module('Codec to MIME Type Conversion');

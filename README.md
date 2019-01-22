@@ -1,14 +1,14 @@
+# Notice: this project will be deprecated and is succeeded by [videojs-http-streaming](https://github.com/videojs/http-streaming). VHS supports HLS and DASH and is built into video.js 7, see the [video.js 7 blog post](https://blog.videojs.com/video-js-7-is-here/)
+
 # video.js HLS Source Handler
 
 [![Build Status][travis-icon]][travis-link]
 [![Slack Status][slack-icon]][slack-link]
-
+[![Greenkeeper badge][greenkeeper-icon]][greenkeeper-link]
 
 Play back HLS with video.js, even where it's not natively supported.
 
-Lead Maintainer: Jon-Carlos Rivera [@imbcmdth](https://github.com/imbcmdth)
-
-Maintenance Status: Stable
+Maintenance Status: Deprecated
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
@@ -54,7 +54,6 @@ Maintenance Status: Stable
 - [Hosting Considerations](#hosting-considerations)
 - [Known Issues](#known-issues)
   - [IE10 and Below](#ie10-and-below)
-  - [IE11](#ie11)
   - [Fragmented MP4 Support](#fragmented-mp4-support)
   - [Testing](#testing)
 - [Release History](#release-history)
@@ -74,7 +73,7 @@ npm install --save videojs-contrib-hls
 ```
 
 ### CDN
-Select a version of HLS from the [CDN](https://cdnjs.com/libraries/videojs-contrib-hls)
+Select a version of HLS from [cdnjs](https://cdnjs.com/libraries/videojs-contrib-hls) or [jsDelivr](https://www.jsdelivr.com/package/npm/videojs-contrib-hls)
 
 ### Releases
 Download a release of [videojs-contrib-hls](https://github.com/videojs/videojs-contrib-hls/releases)
@@ -205,7 +204,7 @@ videojs(video, {flash: {
 // or
 
 var options = {hls: {
-  withCredentials: true;
+  withCredentials: true
 }};
 
 videojs(video, {flash: options, html5: options});
@@ -242,6 +241,16 @@ headers require the addition of `Access-Control-Allow-Credentials` header which
 is set to `true`.
 See html5rocks's [article](http://www.html5rocks.com/en/tutorials/cors/)
 for more info.
+
+##### handleManifestRedirects
+* Type: `boolean`
+* Default: `false`
+* can be used as a source option
+* can be used as an initialization option
+
+When the `handleManifestRedirects` property is set to `true`, manifest requests
+which are redirected will have their URL updated to the new URL for future
+requests.
 
 ##### useCueTags
 * Type: `boolean`
@@ -565,6 +574,10 @@ will have this structure
 
 ```javascript
 cue.value = {
+  byteLength, // The size of the segment in bytes
+  bandwidth, // The peak bitrate reported by the segment's playlist
+  resolution, // The resolution reported by the segment's playlist
+  codecs, // The codecs reported by the segment's playlist
   uri, // The Segment uri
   timeline, // Timeline of the segment for detecting discontinuities
   playlist, // The Playlist uri
@@ -620,12 +633,6 @@ help find a solution that would be appreciated!
 ### IE10 and Below
 As of version 5.0.0, IE10 and below are no longer supported.
 
-### IE11
-In some IE11 setups there are issues working with its native HTML
-SourceBuffers functionality. This leads to various issues, such as
-videos stopping playback with media decode errors. The known workaround
-for this issues is to force the player to use flash when running on IE11.
-
 ### Fragmented MP4 Support
 Edge has native support for HLS but only in the MPEG2-TS container. If
 you attempt to play an HLS stream with fragmented MP4 segments, Edge
@@ -668,3 +675,5 @@ npm run <command>
 [slack-link]: http://slack.videojs.com
 [travis-icon]: https://travis-ci.org/videojs/videojs-contrib-hls.svg?branch=master
 [travis-link]: https://travis-ci.org/videojs/videojs-contrib-hls
+[greenkeeper-icon]: https://badges.greenkeeper.io/videojs/videojs-contrib-hls.svg
+[greenkeeper-link]: https://greenkeeper.io/

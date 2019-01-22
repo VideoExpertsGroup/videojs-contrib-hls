@@ -2,6 +2,69 @@ CHANGELOG
 =========
 
 --------------------
+## HEAD (Unreleased)
+_(none)_
+--------------------
+## 5.15.0 (2018-11-14)
+* Add redirect support for manifest and media requests ([#1213](https://github.com/videojs/videojs-contrib-hls/pull/1213))
+
+--------------------
+## 5.14.1 (2018-03-21)
+* Fixed the minified dist file
+  * update webwackify to 0.1.6 ([#1380](https://github.com/videojs/videojs-contrib-hls/pull/1380))
+  * update videojs-contrib-media-sources to 4.7.2 ([#1382](https://github.com/videojs/videojs-contrib-hls/pull/1382))
+
+--------------------
+## 5.14.0 (2018-03-15)
+* update videojs-contrib-media-sources to 4.7.1 and webwackify to 0.1.5 ([#1376](https://github.com/videojs/videojs-contrib-hls/pull/1376))
+* More useful info in segment-metadata cue (bandwidth/resolution/codecs/byte-length) ([#1210](https://github.com/videojs/videojs-contrib-hls/pull/1210))
+
+--------------------
+## 5.13.0 (2018-03-07)
+* use webwackify for webworkers to support webpack bundle ([#1363](https://github.com/videojs/videojs-contrib-hls/pull/1363))
+* Fix tech.play() throwing unresolved promise errors on Chrome ([#1338](https://github.com/videojs/videojs-contrib-hls/pull/1338))
+* update url-toolkit to ^2.1.3 ([#1327](https://github.com/videojs/videojs-contrib-hls/pull/1327))
+* Add jsDelivr link ([#1274](https://github.com/videojs/videojs-contrib-hls/pull/1274))
+* Update karma reconnect configuration to match video.js' ([#1323](https://github.com/videojs/videojs-contrib-hls/pull/1323))
+  * Increase karma's browserDisconnectTolerance to 3
+* Add nvmrc and update travis' chrome reference ([#1322](https://github.com/videojs/videojs-contrib-hls/pull/1322))
+  * Update karma-chrome-launcher to ^2.2.0
+  * Update karma to ^1.7.1 and remove firefox from travis configuration
+  * enable node_modules caching on travis
+  * Update videojs-contrib-quality-levels to ^2.0.4
+  * Fix test for event handler cleanup on dispose by calling event handling methods
+
+--------------------
+## 5.12.2 (2017-11-06)
+* Remove unused expected manifest js files [#1289](https://github.com/videojs/videojs-contrib-hls/pull/1289)
+* Remove extraneous methods from PlaylistLoader [#1286](https://github.com/videojs/videojs-contrib-hls/pull/1286)
+  * Move isLowestEnabledRendition to playlist module
+* update contrib-media-sources to 4.6.2 [#1291](https://github.com/videojs/videojs-contrib-hls/pull/1291)
+  * update mux.js to 4.3.2
+    * flush pes packets when there is enough data
+
+--------------------
+## 5.12.1 (2017-10-24)
+* update contrib-media-sources to 4.6.1 [#1284](https://github.com/videojs/videojs-contrib-hls/pull/1284)
+  * update mux.js to 4.3.1
+    * Set active data channel per-field instead of globally for CEA-608
+    * Fixed an issue with captions being placed in the wrong CC
+
+--------------------
+## 5.12.0 (2017-10-19)
+* use `lastSegmentDuration + 2 * targetDuration` for safe live point instead of 3 segments [#1271](https://github.com/videojs/videojs-contrib-hls/pull/1271)
+  * do not let back buffer trimming remove within target duration of current time
+  * increase threshold for stuck playlist checking
+* Fix video corruption on rendition switches in IE11 Win 8.1+ and Edge [#1259](https://github.com/videojs/videojs-contrib-hls/pull/1259)
+  * segment-time-mapping event
+  * update contrib-media-sources to 4.6.0
+* prioritize user enabled playlists over blacklist [#1269](https://github.com/videojs/videojs-contrib-hls/pull/1269)
+  * never allow playlist selector to select a playlist that has been permanently blacklisted due to incompatible configuration
+  * When filtering playlists within the playlist selectors, if there are no enabled playlists (i.e. not blacklisted internally AND not disabled by the user) available, then fall back to using the list of playlists not disabled by the user regardless of blacklist state.
+  * make sure playlists blacklisted from an illegal media switch is permanently blacklisted, as there is no reason to try it again at a later time.
+  * The representation api will return a list that filters out just incompatible playlists instead of both incompatible playlists and temporary blacklisted playlists.
+
+--------------------
 ## 5.11.1 (2017-10-11)
 * update videojs-contrib-media-sources to 4.5.3 [#1278](https://github.com/videojs/videojs-contrib-hls/pull/1278)
   * update mux.js to 4.2.2

@@ -74,6 +74,38 @@ export const illegalMediaSwitch = (loaderType, startingMedia, newSegmentMedia) =
 };
 
 /**
+ * Calculates a time value that is safe to remove from the back buffer without interupting
+ * playback.
+ *
+ * @param {TimeRange} seekable
+ *        The current seekable range
+ * @param {Number} currentTime
+ *        The current time of the player
+ * @param {Number} targetDuration
+ *        The target duration of the current playlist
+ * @return {Number}
+ *         Time that is safe to remove from the back buffer without interupting playback
+ */
+export const safeBackBufferTrimTime = (seekable, currentTime, targetDuration) => {
+  let removeToTime;
+
+  if (seekable.length &&
+      seekable.start(0) > 0 &&
+      seekable.start(0) < currentTime) {
+    // If we have a seekable range use that as the limit for what can be removed safely
+    removeToTime = seekable.start(0);
+  } else {
+    // otherwise remove anything older than 30 seconds before the current play head
+    removeToTime = currentTime - 30;
+  }
+
+  // Don't allow removing from the buffer within target duration of current time
+  // to avoid the possibility of removing the GOP currently being played which could
+  // cause playback stalls.
+  return Math.min(removeToTime, currentTime - targetDuration);
+};
+
+/**
  * An object that manages segment loading and appending.
  *
  * @class SegmentLoader
@@ -906,25 +938,15 @@ export default class SegmentLoader extends videojs.EventTarget {
    * @param {Object} segmentInfo - the current segment
    */
   trimBackBuffer_(segmentInfo) {
-    const seekable = this.seekable_();
-    const currentTime = this.currentTime_();
-    let removeToTime = 0;
+    const removeToTime = safeBackBufferTrimTime(this.seekable_(),
+                                                this.currentTime_(),
+                                                this.playlist_.targetDuration || 10);
 
     // Chrome has a hard limit of 150MB of
     // buffer and a very conservative "garbage collector"
     // We manually clear out the old buffer to ensure
     // we don't trigger the QuotaExceeded error
     // on the source buffer during subsequent appends
-
-    // If we have a seekable range use that as the limit for what can be removed safely
-    // otherwise remove anything older than 30 seconds before the current play head
-    if (seekable.length &&
-        seekable.start(0) > 0 &&
-        seekable.start(0) < currentTime) {
-      removeToTime = seekable.start(0);
-    } else {
-      removeToTime = currentTime - 30;
-    }
 
     if (removeToTime > 0) {
       this.remove(0, removeToTime);
@@ -1098,13 +1120,12 @@ export default class SegmentLoader extends videojs.EventTarget {
 
     if (illegalMediaSwitchError) {
       this.error({
-        message: illegalMediaSwitchError
+        message: illegalMediaSwitchError,
+        blacklistDuration: Infinity
       });
       this.trigger('error');
       return;
     }
-
-    this.state = 'APPENDING';
 
     if (segmentInfo.isSyncRequest) {
       this.trigger('syncinfoupdate');
@@ -1119,6 +1140,17 @@ export default class SegmentLoader extends videojs.EventTarget {
       // fired when a timestamp offset is set in HLS (can also identify discontinuities)
       this.trigger('timestampoffset');
     }
+
+    const timelineMapping = this.syncController_.mappingForTimeline(segmentInfo.timeline);
+
+    if (timelineMapping !== null) {
+      this.trigger({
+        type: 'segmenttimemapping',
+        mapping: timelineMapping
+      });
+    }
+
+    this.state = 'APPENDING';
 
     // if the media initialization segment is changing, append it
     // before the content segment
@@ -1277,6 +1309,10 @@ export default class SegmentLoader extends videojs.EventTarget {
 
     const Cue = window.WebKitDataCue || window.VTTCue || window.TextTrackCue;
     const value = {
+      bandwidth: segmentInfo.playlist.attributes.BANDWIDTH,
+      resolution: segmentInfo.playlist.attributes.RESOLUTION,
+      codecs: segmentInfo.playlist.attributes.CODECS,
+      byteLength: segmentInfo.byteLength,
       uri: segmentInfo.uri,
       timeline: segmentInfo.timeline,
       playlist: segmentInfo.playlist.uri,

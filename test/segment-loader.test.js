@@ -1,7 +1,8 @@
 import QUnit from 'qunit';
 import {
   default as SegmentLoader,
-  illegalMediaSwitch
+  illegalMediaSwitch,
+  safeBackBufferTrimTime
 } from '../src/segment-loader';
 import videojs from 'video.js';
 import mp4probe from 'mux.js/lib/mp4/probe';
@@ -105,6 +106,27 @@ QUnit.test('illegalMediaSwitch detects illegal media switches', function(assert)
                ' To get rid of this message, please add codec information to the' +
                ' manifest.',
                'error when video only to audio only');
+});
+
+QUnit.test('safeBackBufferTrimTime determines correct safe removeToTime',
+function(assert) {
+  let seekable = videojs.createTimeRanges([[75, 120]]);
+  let targetDuration = 10;
+  let currentTime = 70;
+
+  assert.equal(safeBackBufferTrimTime(seekable, currentTime, targetDuration), 40,
+    'uses 30s before current time if currentTime is before seekable start');
+
+  currentTime = 110;
+
+  assert.equal(safeBackBufferTrimTime(seekable, currentTime, targetDuration), 75,
+    'uses seekable start if currentTime is after seekable start');
+
+  currentTime = 80;
+
+  assert.equal(safeBackBufferTrimTime(seekable, currentTime, targetDuration), 70,
+    'uses target duration before currentTime if currentTime is after seekable but' +
+    'within target duration');
 });
 
 QUnit.module('SegmentLoader', function(hooks) {
@@ -345,11 +367,58 @@ QUnit.module('SegmentLoader', function(hooks) {
       assert.equal(loader.mediaRequests, 1, '1 request');
     });
 
+    QUnit.test('loader triggers segmenttimemapping before appending segment',
+    function(assert) {
+      let playlist = playlistWithDuration(20);
+      let segmenttimemappings = 0;
+      let timingInfo = { hasMapping: false };
+
+      this.syncController.probeSegmentInfo = () => timingInfo;
+
+      loader.on('segmenttimemapping', function() {
+        segmenttimemappings++;
+      });
+
+      loader.playlist(playlist);
+      loader.mimeType(this.mimeType);
+      loader.load();
+      this.clock.tick(1);
+
+      assert.equal(segmenttimemappings, 0, 'no events before segment downloaded');
+
+      // some time passes and a response is received
+      this.requests[0].response = new Uint8Array(10).buffer;
+      this.requests.shift().respond(200, null, '');
+
+      assert.equal(segmenttimemappings, 0,
+        'did not trigger segmenttimemappings with unsuccessful probe');
+
+      this.updateend();
+      this.clock.tick(1);
+
+      assert.equal(segmenttimemappings, 0, 'no events before segment downloaded');
+
+      timingInfo.hasMapping = true;
+      this.syncController.timelines[0] = { mapping: 0 };
+
+      // some time passes and a response is received
+      this.requests[0].response = new Uint8Array(10).buffer;
+      this.requests.shift().respond(200, null, '');
+
+      assert.equal(segmenttimemappings, 1,
+        'triggered segmenttimemappings with successful probe');
+    });
+
     QUnit.test('adds cues with segment information to the segment-metadata track ' +
                'as they are buffered',
       function(assert) {
         const track = loader.segmentMetadataTrack_;
-        let playlist = playlistWithDuration(50);
+        const attributes = {
+          BANDWIDTH: 3500000,
+          RESOLUTION: '1920x1080',
+          CODECS: 'mp4a.40.5,avc1.42001e'
+        };
+        let playlist = playlistWithDuration(50, {attributes});
         let probeResponse;
         let expectedCue;
 
@@ -377,7 +446,11 @@ QUnit.module('SegmentLoader', function(hooks) {
           timeline: 0,
           playlist: 'playlist.m3u8',
           start: 0,
-          end: 9.5
+          end: 9.5,
+          bandwidth: 3500000,
+          resolution: '1920x1080',
+          codecs: 'mp4a.40.5,avc1.42001e',
+          byteLength: 10
         };
 
         assert.equal(track.cues.length, 1, 'one cue added for segment');
@@ -394,7 +467,11 @@ QUnit.module('SegmentLoader', function(hooks) {
           timeline: 0,
           playlist: 'playlist.m3u8',
           start: 9.56,
-          end: 19.2
+          end: 19.2,
+          bandwidth: 3500000,
+          resolution: '1920x1080',
+          codecs: 'mp4a.40.5,avc1.42001e',
+          byteLength: 10
         };
 
         assert.equal(track.cues.length, 2, 'one cue added for segment');
@@ -411,7 +488,11 @@ QUnit.module('SegmentLoader', function(hooks) {
           timeline: 0,
           playlist: 'playlist.m3u8',
           start: 19.24,
-          end: 28.99
+          end: 28.99,
+          bandwidth: 3500000,
+          resolution: '1920x1080',
+          codecs: 'mp4a.40.5,avc1.42001e',
+          byteLength: 10
         };
 
         assert.equal(track.cues.length, 3, 'one cue added for segment');
@@ -430,7 +511,11 @@ QUnit.module('SegmentLoader', function(hooks) {
           timeline: 0,
           playlist: 'playlist.m3u8',
           start: 19.21,
-          end: 28.98
+          end: 28.98,
+          bandwidth: 3500000,
+          resolution: '1920x1080',
+          codecs: 'mp4a.40.5,avc1.42001e',
+          byteLength: 10
         };
 
         assert.equal(track.cues.length, 3, 'overlapped cue removed, new one added');

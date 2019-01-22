@@ -2,6 +2,7 @@
  * @file master-playlist-controller.js
  */
 import PlaylistLoader from './playlist-loader';
+import { isEnabled, isLowestEnabledRendition } from './playlist.js';
 import SegmentLoader from './segment-loader';
 import VTTSegmentLoader from './vtt-segment-loader';
 import Ranges from './ranges';
@@ -9,7 +10,7 @@ import videojs from 'video.js';
 import AdCueTags from './ad-cue-tags';
 import SyncController from './sync-controller';
 import { translateLegacyCodecs } from 'videojs-contrib-media-sources/es5/codec-utils';
-import worker from 'webworkify';
+import worker from 'webwackify';
 import Decrypter from './decrypter-worker';
 import Config from './config';
 import { parseCodecs } from './util/codecs.js';
@@ -40,6 +41,18 @@ const loaderStats = [
 const sumLoaderStat = function(stat) {
   return this.audioSegmentLoader_[stat] +
          this.mainSegmentLoader_[stat];
+};
+
+const resolveDecrypterWorker = () => {
+  let result;
+
+  try {
+    result = require.resolve('./decrypter-worker');
+  } catch (e) {
+    // no result
+  }
+
+  return result;
 };
 
 /**
@@ -210,7 +223,7 @@ export const mimeTypesForPlaylist_ = function(master, media) {
 };
 
 /**
- * the master playlist controller controller all interactons
+ * the master playlist controller controls all interactons
  * between playlists and segmentloaders. At this time this mainly
  * involves a master playlist and a series of audio playlists
  * if they are available
@@ -224,6 +237,7 @@ export class MasterPlaylistController extends videojs.EventTarget {
 
     let {
       url,
+      handleManifestRedirects,
       withCredentials,
       mode,
       tech,
@@ -240,13 +254,13 @@ export class MasterPlaylistController extends videojs.EventTarget {
 
     Hls = externHls;
 
-    this.withCredentials = withCredentials;
     this.tech_ = tech;
     this.hls_ = tech.hls;
     this.mode_ = mode;
     this.useCueTags_ = useCueTags;
     this.blacklistDuration = blacklistDuration;
     this.enableLowInitialPlaylist = enableLowInitialPlaylist;
+
     if (this.useCueTags_) {
       this.cueTagsTrack_ = this.tech_.addTextTrack('metadata',
         'ad-cues');
@@ -254,7 +268,8 @@ export class MasterPlaylistController extends videojs.EventTarget {
     }
 
     this.requestOptions_ = {
-      withCredentials: this.withCredentials,
+      withCredentials,
+      handleManifestRedirects,
       timeout: null
     };
 
@@ -274,7 +289,7 @@ export class MasterPlaylistController extends videojs.EventTarget {
       label: 'segment-metadata'
     }, false).track;
 
-    this.decrypter_ = worker(Decrypter);
+    this.decrypter_ = worker(Decrypter, resolveDecrypterWorker());
 
     const segmentLoaderSettings = {
       hls: this.hls_,
@@ -291,7 +306,7 @@ export class MasterPlaylistController extends videojs.EventTarget {
     };
 
     // setup playlist loaders
-    this.masterPlaylistLoader_ = new PlaylistLoader(url, this.hls_, this.withCredentials);
+    this.masterPlaylistLoader_ = new PlaylistLoader(url, this.hls_, this.requestOptions_);
     this.setupMasterPlaylistLoaderListeners_();
 
     // setup segment loaders
@@ -336,7 +351,8 @@ export class MasterPlaylistController extends videojs.EventTarget {
 
       // If we don't have any more available playlists, we don't want to
       // timeout the request.
-      if (this.masterPlaylistLoader_.isLowestEnabledRendition_()) {
+      if (isLowestEnabledRendition(
+            this.masterPlaylistLoader_.master, this.masterPlaylistLoader_.media())) {
         this.requestOptions_.timeout = 0;
       } else {
         this.requestOptions_.timeout = requestTimeout;
@@ -455,7 +471,8 @@ export class MasterPlaylistController extends videojs.EventTarget {
 
       // If we don't have any more available playlists, we don't want to
       // timeout the request.
-      if (this.masterPlaylistLoader_.isLowestEnabledRendition_()) {
+      if (isLowestEnabledRendition(
+            this.masterPlaylistLoader_.master, this.masterPlaylistLoader_.media())) {
         this.requestOptions_.timeout = 0;
       } else {
         this.requestOptions_.timeout = requestTimeout;
@@ -609,7 +626,18 @@ export class MasterPlaylistController extends videojs.EventTarget {
     });
 
     this.mainSegmentLoader_.on('reseteverything', () => {
+      // If playing an MTS stream, a videojs.MediaSource is listening for
+      // hls-reset to reset caption parsing state in the transmuxer
       this.tech_.trigger('hls-reset');
+    });
+
+    this.mainSegmentLoader_.on('segmenttimemapping', (event) => {
+      // If playing an MTS stream in html, a videojs.MediaSource is listening for
+      // hls-segment-time-mapping update its internal mapping of stream to display time
+      this.tech_.trigger({
+        type: 'hls-segment-time-mapping',
+        mapping: event.mapping
+      });
     });
 
     this.audioSegmentLoader_.on('ended', () => {
@@ -753,7 +781,13 @@ export class MasterPlaylistController extends videojs.EventTarget {
     // code in video.js but is required because play() must be invoked
     // *after* the media source has opened.
     if (this.tech_.autoplay()) {
-      this.tech_.play();
+      const playPromise = this.tech_.play();
+
+      // Catch/silence error when a pause interrupts a play request
+      // on browsers which return a promise
+      if (typeof playPromise !== 'undefined' && typeof playPromise.then === 'function') {
+        playPromise.then(null, (e) => {});
+      }
     }
 
     this.trigger('sourceopen');
@@ -809,14 +843,14 @@ export class MasterPlaylistController extends videojs.EventTarget {
 
     if (!buffered.length) {
       // return true if the playhead reached the absolute end of the playlist
-      return absolutePlaylistEnd - currentTime <= Ranges.TIME_FUDGE_FACTOR;
+      return absolutePlaylistEnd - currentTime <= Ranges.SAFE_TIME_DELTA;
     }
     let bufferedEnd = buffered.end(buffered.length - 1);
 
-    // return true if there is too little buffer left and
-    // buffer has reached absolute end of playlist
-    return bufferedEnd - currentTime <= Ranges.TIME_FUDGE_FACTOR &&
-           absolutePlaylistEnd - bufferedEnd <= Ranges.TIME_FUDGE_FACTOR;
+    // return true if there is too little buffer left and buffer has reached absolute
+    // end of playlist
+    return bufferedEnd - currentTime <= Ranges.SAFE_TIME_DELTA &&
+           absolutePlaylistEnd - bufferedEnd <= Ranges.SAFE_TIME_DELTA;
   }
 
   /**
@@ -839,6 +873,10 @@ export class MasterPlaylistController extends videojs.EventTarget {
     // out-of-date in this scenario
     currentPlaylist = error.playlist || this.masterPlaylistLoader_.media();
 
+    blacklistDuration = blacklistDuration ||
+                        error.blacklistDuration ||
+                        this.blacklistDuration;
+
     // If there is no current playlist, then an error occurred while we were
     // trying to load the master OR while we were disposing of the tech
     if (!currentPlaylist) {
@@ -851,7 +889,8 @@ export class MasterPlaylistController extends videojs.EventTarget {
       }
     }
 
-    let isFinalRendition = this.masterPlaylistLoader_.isFinalRendition_();
+    let isFinalRendition =
+      this.masterPlaylistLoader_.master.playlists.filter(isEnabled).length === 1;
 
     if (isFinalRendition) {
       // Never blacklisting this playlist because it's final rendition
@@ -862,8 +901,7 @@ export class MasterPlaylistController extends videojs.EventTarget {
       return this.masterPlaylistLoader_.load(isFinalRendition);
     }
     // Blacklist this playlist
-    currentPlaylist.excludeUntil = Date.now() +
-      (blacklistDuration ? blacklistDuration : this.blacklistDuration) * 1000;
+    currentPlaylist.excludeUntil = Date.now() + (blacklistDuration * 1000);
     this.tech_.trigger('blacklistplaylist');
     this.tech_.trigger({type: 'usage', name: 'hls-rendition-blacklisted'});
 

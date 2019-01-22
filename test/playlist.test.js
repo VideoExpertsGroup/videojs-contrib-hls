@@ -356,7 +356,7 @@ function(assert) {
 
 QUnit.test('seekable end and playlist end account for non-standard target durations',
 function(assert) {
-  let playlist = {
+  const playlist = {
     targetDuration: 2,
     mediaSequence: 0,
     syncInfo: {
@@ -385,9 +385,111 @@ function(assert) {
 
   assert.equal(seekable.start(0), 0, 'starts at the earliest available segment');
   assert.equal(seekable.end(0),
-              9 - (2 + 2 + 1),
-              'allows seeking no further than three segments from the end');
+               // Playlist duration is 9s. Target duration 2s. Seekable end should be at
+               // least 6s from end. Adding segment durations starting from the end to get
+               // that 6s target
+               9 - (2 + 2 + 1 + 2),
+               'allows seeking no further than the start of the segment 2 target' +
+               'durations back from the beginning of the last segment');
   assert.equal(playlistEnd, 9, 'playlist end at the last segment');
+});
+
+QUnit.test('safeLiveIndex is correct for standard segment durations', function(assert) {
+  const playlist = {
+    targetDuration: 6,
+    mediaSequence: 10,
+    syncInfo: {
+      time: 0,
+      mediaSequence: 10
+    },
+    segments: [
+      {
+        duration: 6
+      },
+      {
+        duration: 6
+      },
+      {
+        duration: 6
+      },
+      {
+        duration: 6
+      },
+      {
+        duration: 6
+      },
+      {
+        duration: 6
+      }
+    ]
+  };
+
+  assert.equal(Playlist.safeLiveIndex(playlist), 3,
+    'correct media index for standard durations');
+});
+
+QUnit.test('safeLiveIndex is correct for variable segment durations', function(assert) {
+  const playlist = {
+    targetDuration: 6,
+    mediaSequence: 10,
+    syncInfo: {
+      time: 0,
+      mediaSequence: 10
+    },
+    segments: [
+      {
+        duration: 6
+      },
+      {
+        duration: 4
+      },
+      {
+        duration: 5
+      },
+      {
+        // this segment is 16 seconds from the end of playlist, the safe live point
+        duration: 6
+      },
+      {
+        duration: 3
+      },
+      {
+        duration: 4
+      },
+      {
+        duration: 3
+      }
+    ]
+  };
+
+  // safe live point is no less than 15 seconds (3s + 2 * 6s) from the end of the playlist
+  assert.equal(Playlist.safeLiveIndex(playlist), 3,
+    'correct media index for variable segment durations');
+});
+
+QUnit.test('safeLiveIndex is 0 when no safe live point', function(assert) {
+  const playlist = {
+    targetDuration: 6,
+    mediaSequence: 10,
+    syncInfo: {
+      time: 0,
+      mediaSequence: 10
+    },
+    segments: [
+      {
+        duration: 6
+      },
+      {
+        duration: 3
+      },
+      {
+        duration: 3
+      }
+    ]
+  };
+
+  assert.equal(Playlist.safeLiveIndex(playlist), 0,
+    'returns media index 0 when playlist has no safe live point');
 });
 
 QUnit.test(
@@ -684,6 +786,119 @@ QUnit.test('estimates segment request time based on bandwidth', function(assert)
                                                  bytesReceived);
 
   assert.equal(estimate, 8, 'takes into account bytes already received from download');
+});
+
+QUnit.module('Playlist enabled states', {
+  beforeEach(assert) {
+    this.env = useFakeEnvironment(assert);
+    this.clock = this.env.clock;
+  },
+  afterEach() {
+    this.env.restore();
+  }
+});
+
+QUnit.test('determines if a playlist is incompatible', function(assert) {
+  // incompatible means that the playlist was blacklisted due to incompatible
+  // configuration e.g. audio only stream when trying to playback audio and video.
+  // incompaatibility is denoted by a blacklist of Infinity.
+  assert.notOk(Playlist.isIncompatible({}),
+    'playlist not incompatible if no excludeUntil');
+
+  assert.notOk(Playlist.isIncompatible({ excludeUntil: 1 }),
+    'playlist not incompatible if expired blacklist');
+
+  assert.notOk(Playlist.isIncompatible({ excludeUntil: Date.now() + 9999 }),
+    'playlist not incompatible if temporarily blacklisted');
+
+  assert.ok(Playlist.isIncompatible({ excludeUntil: Infinity }),
+    'playlist is incompatible if excludeUntil is Infinity');
+});
+
+QUnit.test('determines if a playlist is blacklisted', function(assert) {
+  assert.notOk(Playlist.isBlacklisted({}),
+    'playlist not blacklisted if no excludeUntil');
+
+  assert.notOk(Playlist.isBlacklisted({ excludeUntil: Date.now() - 1 }),
+    'playlist not blacklisted if expired excludeUntil');
+
+  assert.ok(Playlist.isBlacklisted({ excludeUntil: Date.now() + 9999 }),
+    'playlist is blacklisted');
+
+  assert.ok(Playlist.isBlacklisted({ excludeUntil: Infinity }),
+    'playlist is blacklisted if excludeUntil is Infinity');
+});
+
+QUnit.test('determines if a playlist is disabled', function(assert) {
+  assert.notOk(Playlist.isDisabled({}), 'playlist not disabled');
+
+  assert.ok(Playlist.isDisabled({ disabled: true }), 'playlist is disabled');
+});
+
+QUnit.test('playlists with no or expired blacklist are enabled', function(assert) {
+  // enabled means not blacklisted and not disabled
+  assert.ok(Playlist.isEnabled({}), 'playlist with no blacklist is enabled');
+  assert.ok(Playlist.isEnabled({ excludeUntil: Date.now() - 1 }),
+    'playlist with expired blacklist is enabled');
+});
+
+QUnit.test('blacklisted playlists are not enabled', function(assert) {
+  // enabled means not blacklisted and not disabled
+  assert.notOk(Playlist.isEnabled({ excludeUntil: Date.now() + 9999 }),
+    'playlist with temporary blacklist is not enabled');
+  assert.notOk(Playlist.isEnabled({ excludeUntil: Infinity }),
+    'playlist with permanent is not enabled');
+});
+
+QUnit.test('manually disabled playlists are not enabled regardless of blacklist state',
+function(assert) {
+  // enabled means not blacklisted and not disabled
+  assert.notOk(Playlist.isEnabled({ disabled: true }),
+    'disabled playlist with no blacklist is not enabled');
+  assert.notOk(Playlist.isEnabled({ disabled: true, excludeUntil: Date.now() - 1 }),
+    'disabled playlist with expired blacklist is not enabled');
+  assert.notOk(Playlist.isEnabled({ disabled: true, excludeUntil: Date.now() + 9999 }),
+    'disabled playlist with temporary blacklist is not enabled');
+  assert.notOk(Playlist.isEnabled({ disabled: true, excludeUntil: Infinity }),
+    'disabled playlist with permanent blacklist is not enabled');
+});
+
+QUnit.test('isLowestEnabledRendition detects if we are on lowest rendition',
+function(assert) {
+  assert.ok(
+    Playlist.isLowestEnabledRendition(
+      {
+        playlists: [
+          {attributes: {BANDWIDTH: 10}},
+          {attributes: {BANDWIDTH: 20}}
+        ]
+      },
+      {attributes: {BANDWIDTH: 10}}),
+    'Detected on lowest rendition');
+
+  assert.ok(
+    Playlist.isLowestEnabledRendition(
+      {
+        playlists: [
+          {attributes: {BANDWIDTH: 10}},
+          {attributes: {BANDWIDTH: 10}},
+          {attributes: {BANDWIDTH: 10}},
+          {attributes: {BANDWIDTH: 20}}
+        ]
+      },
+      {attributes: {BANDWIDTH: 10}}),
+    'Detected on lowest rendition');
+
+  assert.notOk(
+    Playlist.isLowestEnabledRendition(
+      {
+        playlists: [
+          {attributes: {BANDWIDTH: 10}},
+          {attributes: {BANDWIDTH: 20}}
+        ]
+      },
+      {attributes: {BANDWIDTH: 20}}),
+    'Detected not on lowest rendition');
 });
 
 QUnit.module('Playlist isAes and isFmp4', {
