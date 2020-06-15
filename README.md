@@ -1,4 +1,4 @@
-# Notice: this project will be deprecated and is succeeded by [videojs-http-streaming](https://github.com/videojs/http-streaming). VHS supports HLS and DASH and is built into video.js 7, see the [video.js 7 blog post](https://blog.videojs.com/video-js-7-is-here/)
+# Notice: This project will be depreciated and is succeeded by [videojs-http-streaming](https://github.com/videojs/http-streaming). VHS supports HLS and DASH and is built into video.js 7, see the [video.js 7 blog post](https://blog.videojs.com/video-js-7-is-here/)
 
 # video.js HLS Source Handler
 
